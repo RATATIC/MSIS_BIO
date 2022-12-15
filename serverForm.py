@@ -1,11 +1,49 @@
+import socket
+import json
+import threading
 from tkinter import *
 from tkinter import ttk
 from tkinter import messagebox
 import random
 from tkinter import scrolledtext
 
+#mtx = threading.Lock()
+
+def recv_data(conn):
+    data = conn.recv (1024)
+    if not data:
+        return -1
+    #mtx.locked ()
+    #dataForalgo = data
+    #updateMap (data)
+    #mtx.release ()
+    print (data)
+    
+
+def connection_thread(conn, addr):
+    while True:
+        if recv_data(conn) == -1:
+            break
+        conn.sendall ('OK'.encode ('utf-8'))
+    conn.close ()
+
+def create_listen_sock():
+    print("Server started.")
+    sock = socket.socket (socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind (('localhost', 8887))
+    sock.listen (10)
+    threads = list ()
+    while True:
+        conn, addr = sock.accept()
+        thr = threading.Thread (target = connection_thread, args=(conn, addr))
+        threads.append (thr)
+        thr.start ()
+
+
 def click_on_off_button():
     messagebox.showinfo("Статус сервера", "Сервер запущен")
+    serverThread = threading.Thread (target = create_listen_sock)
+    serverThread.start ()
 
 def status(event):
     if event.keysym == '1':

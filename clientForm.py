@@ -1,8 +1,31 @@
+import socket
+import json
+import threading
+import time
 from tkinter import *
 from tkinter import ttk
 from tkinter import messagebox
 import random
 from tkinter import scrolledtext
+
+def create_client():
+    sock = socket.socket (socket.AF_INET, socket.SOCK_STREAM)
+
+    data_send = '{"time": "07.12.2022-16:58:12", "range": 25.2222,"X": 2.1,"Y": 2.4,"IP": }'
+    print (data_send)
+    sock.connect (('localhost', 8887))
+    while True:
+        sock.sendall (data_send.encode('utf-8'))
+        data = sock.recv(1024)
+        print (data)
+        time.sleep (1)
+
+
+def click_on_off_button_client ():
+    messagebox.showinfo("Статус сервера", "Сервер запущен")
+    serverThread = threading.Thread (target = create_client)
+    serverThread.start ()
+
 
 def status(event):
     if event.keysym == '1':
@@ -83,6 +106,9 @@ class ClientForm:
 
         y_label.pack(side = LEFT, anchor="w", padx=35, pady=30)
         y_entry.pack(side = LEFT, anchor="w", padx=10, pady=30, ipadx = 50)
+
+        on_off_button = Button(frame4, text="Включить клиент", command=click_on_off_button_client)
+        on_off_button.pack(side = LEFT)
 
         status_servera_label = Label(frame4, text="Статус подключения:", bg = '#E0FFFF')
         status_servera_label.place(relx = 0.35, rely = 0.10)
