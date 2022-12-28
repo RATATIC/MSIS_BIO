@@ -9,10 +9,10 @@ from serverForm import ServerForm
 import numpy as np    
 
 class Mainform:
-    wHei = 600
+    wHei = 700
     wWid = 600
     canvW = 500
-    canvH = 400
+    canvH = 500
     legon = False
     def __init__(self) -> None:
         self.window = Tk()
@@ -62,11 +62,11 @@ class Mainform:
         self.canv.grid(row=2, column=0, columnspan=3, pady=20)
 
         #creating coordinate grid
-        for i in range(1, 8):
-            self.canv.create_line(0, i*50, 600, i*50, fill="white")
+        for i in range(1, 10):
+            self.canv.create_line(0, i*50, self.wWid, i*50, fill="white")
             
         for i in range(0, 12):
-            self.canv.create_line(i*50, 0, i*50, 400, fill="white")
+            self.canv.create_line(i*50, 0, i*50, self.wHei, fill="white")
 
         self.myLocationX = 0
         self.myLocationY = 0
@@ -108,17 +108,19 @@ class Mainform:
         print(self.deviceX)
         print(self.deviceY)
         print(self.distances)
-        maxx = max(self.deviceX)
+        devX = np.append(self.deviceX, target[0])
+        devY = np.append(self.deviceY, target[1])
+        maxx = max(devX)
         if maxx < 0:
             maxx = 0
-        minx = min(self.deviceX)
+        minx = min(devX)
         if minx > 0:
             minx = 0
         rangex = maxx-minx
-        maxy = max(self.deviceY)
+        maxy = max(devY)
         if maxy < 0:
             maxy = 0
-        miny = min(self.deviceY)
+        miny = min(devY)
         if miny > 0:
             miny = 0
         rangey = maxy-miny
@@ -127,22 +129,24 @@ class Mainform:
         ri = self.canvW - 2*li
         ti = self.canvH/sc
         bi = self.canvH - 2*ti
-        self.scale = ((ri**2+bi**2)**(0.5))/((rangex**2+rangey**2)**(0.5))
+        self.shift =li
+        #self.scale = ((ri**2+bi**2)**(0.5))/((rangex**2+rangey**2)**(0.5))
+        self.scale = ri/max(rangex, rangey)
         self.distances = self.distances*self.scale
         self.mydistance = self.mydistance*self.scale
-        self.deviceX = (self.deviceX - minx)/(maxx - minx) * ri + li
-        self.deviceY = (self.deviceY - miny)/(maxy - miny) * bi + ti
-        self.myLocationX = (- minx)/(maxx - minx) * ri + li
-        self.myLocationY = (- miny)/(maxy - miny) * bi + ti
-        self.radius = ((ri**2+bi**2)**(0.5))/50
-        self.target = [(target[0]- minx)/(maxx - minx) * ri + li, (target[1] - miny)/(maxy - miny) * bi + ti]
+        self.deviceX = (self.deviceX - minx)*self.scale + self.shift
+        self.deviceY = (self.deviceY - miny)*self.scale + self.shift
+        self.myLocationX = (- minx)*self.scale + self.shift
+        self.myLocationY = (- miny)*self.scale + self.shift
+        self.radius = ri/45
+        self.target = [(target[0]- minx)*self.scale + self.shift, (target[1] - miny)*self.scale + self.shift]
 
     def repaint(self):
         self.canv = Canvas(self.window, width=self.canvW, height=self.canvH, bg='black')
         self.canv.grid(row=2, column=0, columnspan=3, pady=20)
 
         #creating coordinate grid
-        for i in range(1, 8):
+        for i in range(1, 12):
             self.canv.create_line(0, i*50, self.canvW, i*50, fill="white")
             
         for i in range(0, 12):

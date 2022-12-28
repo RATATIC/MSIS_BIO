@@ -15,10 +15,11 @@ from threading import Event
 
 
 class Client:
-    def __init__(self, X, Y, bip, power, nl) -> None:
+    def __init__(self, CF, X, Y, bip, power, nl) -> None:
         self.IP = str(random.randint(0, 255))+'.'+str(random.randint(0, 255))+'.'+str(random.randint(0, 255))+'.'+str(random.randint(0, 255))
         #self.name = socket.gethostname()
         #self.IP = socket.gethostbyname(self.name)
+        self.CF = CF
         self.distance = 0.01
         self.state = 1
         self.X = X
@@ -35,19 +36,22 @@ class Client:
             d = await BleakScanner.find_device_by_address(self.bip)
             if not d is None:
                 self.distance = 10**((self.power - d.rssi)/(10*self.nl))
-                print(d.name, d.address, d.rssi, self.distance)
-        print("Bluetooth search process finished")
+                self.CF.lprint(str(d.name) + ' ' + str(d.address) + ' ' + str(d.rssi) + ' ' + str(self.distance))
+                
+        self.CF.lprint("Bluetooth search process finished")
+        
             
     def connect_to_server(self, IP, port):
-        print("Client started")
+        self.CF.lprint("Client started")
         self.sock = socket.socket (socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect ((IP, port))
+        self.CF.lprint("Client connected to the server: " + str(IP) + " on " + str(port) + " port")
         while True:
             if self.stop_event.is_set():
                 break
             if not self.sendMessage():
                 break
-            time.sleep (1)
+            time.sleep (3)
             
     def sync(self):
         loop = asyncio.new_event_loop()
@@ -64,16 +68,18 @@ class Client:
     
     def stopThreads(self):
         self.stop_event.set()
+        self.CF.lprint("Client stopped")
     
     def sendMessage(self):
         try:
             self.data_send = """{"time": "%s", "distance": %s, "X": %s,"Y": %s,"IP": "%s", "state": %s}""" % (time.ctime(), self.distance, self.X, self.Y, self.IP, self.state)
             self.sock.sendall (self.data_send.encode('utf-8'))
-            self.data = self.sock.recv(1024)
-            print (self.data)
+            self.data = self.sock.recv(1024).decode("utf-8")
+            self.CF.lprint(self.data)
             return 1
         except ConnectionAbortedError:
-            print("Server connection was aborted ")
+            self.CF.server_aborted()
+            self.CF.lprint("Server connection was aborted ")
             return 0
 
 
@@ -85,7 +91,7 @@ class ClientForm:
         #messagebox.showinfo("Статус клиента", "Клиент запущен", parent = self.clientWindow)
         self.state = 1
         self.status("1")
-        self.client = Client(int(self.x_entry.get()), int(self.y_entry.get()), self.bip, self.power, self.nl)
+        self.client = Client(self, float(self.x_entry.get()), float(self.y_entry.get()), self.bip, self.power, self.nl)
         self.client.startThreads(self.IP_adress_entry.get(), int(self.port_entry.get()))
         self.on_off_button['text'] = "Отключиться от сервера"
         self.on_off_button['command'] = self.click_off_button
@@ -102,8 +108,13 @@ class ClientForm:
         self.client.sock.close()
         self.on_off_button['text'] = "Подключиться к серверу"
         self.on_off_button['command'] = self.click_on_button
-        print("Client stopped")
-
+        
+    def server_aborted(self):
+        self.status("2")
+        self.client.sock.close()
+        self.on_off_button['text'] = "Подключиться к серверу"
+        self.on_off_button['command'] = self.click_on_button
+        
     def status(self, key):
         if key == '1':
             self.canvas.itemconfig(self.r, fill='#708090') 
@@ -129,7 +140,16 @@ class ClientForm:
         else:
             self.mainform.window.deiconify()
             
-
+    def lprint(self, text, both = True):
+        if both:
+            print(text)
+        if not self.clientWindow is None:
+            try:
+                self.logs.insert(END, str(text) + "\n")
+                self.logs.see("end")
+            except:
+                pass
+        
     def openClientWindow(self, bip, power, nl):  
         self.bip = bip
         self.power = power
@@ -188,6 +208,7 @@ class ClientForm:
 
         self.IP_adress_label.pack(side = LEFT, anchor="w", padx=35, pady=30)
         self.IP_adress_entry.pack(side = LEFT, anchor="w", padx=10, pady=30, ipadx = 50)
+        self.IP_adress_entry.focus()
 
         self.port_label.pack(side = LEFT, anchor="w", padx=35, pady=30)
         self.port_entry.pack(side = LEFT, anchor="w", padx=10, pady=30, ipadx = 50)
@@ -214,6 +235,7 @@ class ClientForm:
         self.canvas.place(relx = 0.50, rely = 0)
         
         self.logs = scrolledtext.ScrolledText(frame5, height=500, width=800, bg = 'black', fg='white')
-        self.logs.insert(END, "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur?Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur?Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur?Hello WorldSed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur?")
+        self.logs.insert(END, "")
         self.logs.see("end")
         self.logs.pack(side = BOTTOM)
+        self.clientWindow.mainloop()

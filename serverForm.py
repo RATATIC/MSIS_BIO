@@ -22,7 +22,9 @@ class Server:
     distance = 0.01
     target = [0, 0]
     stop_event = Event()
-    def __init__(self, bip, power, nl) -> None:
+    
+    def __init__(self, SF, bip, power, nl) -> None:
+        self.SF = SF
         self.bip = bip
         self.power = power
         self.nl = nl
@@ -33,10 +35,16 @@ class Server:
         dists = np.sqrt(A[:,None] + B)
         return (dists <= r).astype(int)
 
+    def deviations(self, N, x, y, r):
+        A = np.arange(- y + 1,N - y + 1)**2
+        B = np.arange(- x + 1,N - x + 1)**2
+        dists = np.sqrt(A[:,None] + B)
+        return dists - r
+    
     def ring(self, N, x, y, r):
         eps = 0.0000001
         n = 1
-        W = N/2
+        W = N/3
         A = np.arange(- y + 1,N - y + 1)**2
         B = np.arange(- x + 1,N - x + 1)**2
         dists = np.sqrt(A[:,None] + B)
@@ -48,18 +56,20 @@ class Server:
 
     def getTargetCoords(self):
         N = 500
-        eps = 0.02
+        eps = 0.001
         scale = 20
         mmap = np.zeros((N, N))
-        amount = len(self.data)+1
+        amount = len(self.data) + 1 
         masks = np.zeros((amount, N,N))
         for i, (x, y, r) in enumerate(self.data.values()):
-            masks[i] = self.circle(N, int(x*scale+N/2), int(y*scale+N/2), r * scale)
-            mmap = mmap + masks[i]
-        # servers distance
-        masks[-1] = self.circle(N, int(N/2), int(N/2), self.distance * scale)
-        mmap = mmap + masks[-1]
-        temp = np.where(mmap > np.max(mmap) - eps)
+            masks[i] = self.deviations(N, int(x*scale+N/2), int(y*scale+N/2), r * scale)
+            #masks[i][masks[i].astype(bool)] = 1/(r**2)
+            mmap = mmap + masks[i]**2
+        masks[-1] = self.deviations(N, int(N/2), int(N/2), self.distance * scale)
+        #masks[-1][masks[-1].astype(bool)] = 1/(self.distance**2)
+        mmap = mmap + masks[-1]**2
+        mmap = np.sqrt(mmap)
+        temp = np.where(mmap < np.min(mmap) + eps)
         device_coords = [int(np.mean(temp[1]) - N/2)/scale, int(np.mean(temp[0]) - N/2)/scale]
         device_vis = self.circle(N, device_coords[0]*scale + N/2, device_coords[1]*scale + N/2, N/100)
         mmap[device_vis.astype(bool)] = 0
@@ -75,15 +85,17 @@ class Server:
             d = await BleakScanner.find_device_by_address(self.bip)
             if not d is None:
                 self.distance = 10**((self.power - d.rssi)/(10*self.nl))
-                print(d.name, d.address, d.rssi, self.distance)
-        print("Bluetooth search process finished")
+                self.SF.lprint(str(d.name) + ' ' + str(d.address) + ' ' + str(d.rssi) + ' ' + str(self.distance))
+                
+        self.SF.lprint("Bluetooth search process finished")
+        
                     
     def recv_data(self, conn):
         try:
             temp = conn.recv(1024).decode("utf-8")
             temp = json.loads(temp)
         except :
-            print("Client aborted connection")
+            self.SF.lprint("Client aborted connection")
             return -1
         if temp['state']:
             self.data[temp['IP']] = [int(temp['X']), int(temp['Y']), float(temp['distance'])]
@@ -92,7 +104,7 @@ class Server:
         if not temp:
             return -1
         self.target = self.getTargetCoords()
-        print (temp['IP'], temp['distance'], temp['state'])
+        self.SF.lprint('Distance to ' + str(temp['IP']) + ' is ' + str(temp['distance']) + ' and its state is ' + str(temp['state']))
             
 
     def connection_thread(self, conn, addr):
@@ -100,13 +112,13 @@ class Server:
             if self.recv_data(conn) == -1 or self.stop_event.is_set():
                 break
             try:
-                conn.sendall ('OK'.encode ('utf-8'))
+                conn.sendall ('Server successfully recieved the data'.encode ('utf-8'))
             except ConnectionResetError:
-                print("Cannot answer - connection aborted by host")
+                self.SF.lprint("Cannot answer - connection aborted by host")
         conn.close ()
 
     def create_listen_sock(self, IP, port):
-        print("Server started")
+        self.SF.lprint("Server started")
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.bind((IP, port))
         self.sock.listen(10)
@@ -122,12 +134,12 @@ class Server:
                 break
             try:
                 self.conn, self.addr = self.sock.accept()
-                print("Client", self.addr[0], "has joined the server")
+                self.SF.lprint("Client " + str(self.addr[0]) +  " has joined the server")
                 self.connections.append(self.conn)
                 self.sockthrds.append(threading.Thread(target = self.connection_thread, args=((self.conn, self.addr))))
                 self.sockthrds[-1].start()
             except OSError:
-                print("Server acception was aborted")
+                self.SF.lprint("Server acception was aborted")
             
            
             
@@ -148,6 +160,7 @@ class Server:
         self.stop_event.set()
         time.sleep(1)
         self.sock.close()
+        self.SF.lprint("Server stopped")
 
 
 class ServerForm:
@@ -160,7 +173,7 @@ class ServerForm:
         #messagebox.showinfo("Статус сервера", "Сервер запущен", parent = self.serverWindow)
         self.state = 1
         self.status("1")
-        self.server = Server(self.bip, self.power, self.nl)
+        self.server = Server(self, self.bip, self.power, self.nl)
         self.server.startThreads(self.IP_adress_entry.get(), int(self.port_entry.get()))
         
         self.on_off_button['text'] = "Выключить сервер"
@@ -178,7 +191,7 @@ class ServerForm:
         self.status("0")
         self.on_off_button['text'] = "Включить сервер"
         self.on_off_button['command'] = self.click_on_button
-        print("Server stopped")
+        
     
     def refresh_map(self):
         self.mainform.setCoords(self.server.data, self.server.target, self.server.distance)
@@ -209,6 +222,16 @@ class ServerForm:
             self.mainform.window.destroy()
         else:
             self.mainform.window.deiconify()
+        
+    def lprint(self, text, both = True):
+        if both:
+            print(text)
+        if not self.serverWindow is None:
+            try:
+                self.logs.insert(END, str(text) + "\n")
+                self.logs.see("end")
+            except:
+                pass
         
     def openServerWindow(self, bip, power, nl): 
         self.bip = bip
@@ -250,6 +273,7 @@ class ServerForm:
 
         self.IP_adress_label.pack(side = LEFT, anchor="w", padx=35, pady=30)
         self.IP_adress_entry.pack(side = LEFT, anchor="w", padx=10, pady=30, ipadx = 50)
+        self.IP_adress_entry.focus()
 
         self.port_label.pack(side = LEFT, anchor="w", padx=35, pady=30)
         self.port_entry.pack(side = LEFT, anchor="w", padx=10, pady=30, ipadx = 50)
@@ -273,8 +297,8 @@ class ServerForm:
         self.canvas.place(relx = 0.50, rely = 0)
 
         self.logs = scrolledtext.ScrolledText(frame4, height=500, width=800, bg = 'black', fg='white')
-        self.logs.insert(END, "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur?Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur?Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur?Hello WorldSed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur?")
+        self.logs.insert(END, "")
         self.logs.see("end")
         self.logs.pack(side = BOTTOM)
-
+        self.serverWindow.mainloop()
         #self.canvas.bind_all("", self.status)
